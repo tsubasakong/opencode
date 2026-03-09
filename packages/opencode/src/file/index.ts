@@ -340,7 +340,10 @@ export namespace File {
 
     const fn = async (result: Entry) => {
       // Disable scanning if in root of file system
-      if (Instance.directory === path.parse(Instance.directory).root) return
+      if (Instance.directory === path.parse(Instance.directory).root) {
+        fetching = false
+        return
+      }
       fetching = true
 
       if (isGlobalHome) {
@@ -395,12 +398,31 @@ export namespace File {
       cache = result
       fetching = false
     }
-    fn(cache)
+
+    const refresh = (result: Entry) => {
+      void fn(result).catch((error) => {
+        fetching = false
+        if (error instanceof DOMException && error.name === "AbortError") return
+        if ((error as { code?: string }).code === "ENOENT") {
+          log.debug("background file scan skipped missing directory", {
+            directory: Instance.directory,
+            error,
+          })
+          return
+        }
+        log.warn("background file scan failed", {
+          directory: Instance.directory,
+          error,
+        })
+      })
+    }
+
+    refresh(cache)
 
     return {
       async files() {
         if (!fetching) {
-          fn({
+          refresh({
             files: [],
             dirs: [],
           })

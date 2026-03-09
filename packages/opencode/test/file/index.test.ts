@@ -1,10 +1,17 @@
-import { describe, test, expect } from "bun:test"
+import { afterEach, describe, test, expect, mock, spyOn } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { File } from "../../src/file"
+import { Ripgrep } from "../../src/file/ripgrep"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
+import { resetDatabase } from "../fixture/db"
+
+afterEach(async () => {
+  mock.restore()
+  await resetDatabase()
+})
 
 describe("file/index Filesystem patterns", () => {
   describe("File.read() - text content", () => {
@@ -204,6 +211,31 @@ describe("file/index Filesystem patterns", () => {
           expect(Array.isArray(nodes)).toBe(true)
         },
       })
+    })
+  })
+
+  describe("File.init() - background scan", () => {
+    test("ignores ENOENT from detached file scans", async () => {
+      const filesSpy = spyOn(Ripgrep, "files").mockImplementation(async function* () {
+        await Bun.sleep(0)
+        throw Object.assign(new Error("No such file or directory: '/tmp/missing'"), {
+          code: "ENOENT",
+          errno: -2,
+          path: "/tmp/missing",
+        })
+      })
+
+      await using tmp = await tmpdir()
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          File.init()
+          await Bun.sleep(10)
+        },
+      })
+
+      expect(filesSpy).toHaveBeenCalledTimes(1)
     })
   })
 
